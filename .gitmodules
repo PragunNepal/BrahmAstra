@@ -1,0 +1,12 @@
+[submodule "external/nbody"]
+	path = external/nbody
+	url = https://github.com/rajeshmondal18/N-body.git
+[submodule "external/fof"]
+	path = external/fof
+	url = https://github.com/rajeshmondal18/FoF-Halo-finder.git
+[submodule "external/reionyuga"]
+	path = external/reionyuga
+	url = https://github.com/rajeshmondal18/ReionYuga.git
+[submodule "external/dvisukta"]
+	path = external/dvisukta
+	url = https://github.com/rajeshmondal18/DviSukta.git
