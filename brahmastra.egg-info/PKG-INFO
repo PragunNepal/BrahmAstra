@@ -1,0 +1,19 @@
+Metadata-Version: 2.4
+Name: brahmastra
+Version: 0.1.0
+Summary: A Python pipeline for Cosmological N-body, Halo, and HI simulations.
+Author: Pragun Nepal
+Requires-Python: >=3.8
+License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: matplotlib
+Requires-Dist: scipy
+Requires-Dist: pyvista
+Requires-Dist: tqdm
+Requires-Dist: imageio
+Requires-Dist: imageio-ffmpeg
+Dynamic: author
+Dynamic: license-file
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
