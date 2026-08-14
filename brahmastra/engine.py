@@ -67,3 +67,35 @@ class NBodyRunner:
             
         if result.stderr:
             print("\nError Details (if any):\n", result.stderr)
+            
+            
+            
+class FoFRunner:
+    def __init__(self, base_dir="."):
+        import os
+        from pathlib import Path
+        self.base_dir = Path(base_dir).resolve()
+        self.exec_path = self.base_dir / "external" / "fof" / "fof_main"
+        
+        if not self.exec_path.exists():
+            raise FileNotFoundError(f"Executable not found at {self.exec_path}. Did you run 'make' in external/fof?")
+
+    def run(self):
+        import subprocess
+        print(f"Starting FoF Halo Finder using {self.exec_path}...")
+        
+        # Trigger the C executable via Python (ignoring garbage exit codes like before)
+        result = subprocess.run(
+            [str(self.exec_path)], 
+            cwd=str(self.base_dir),
+            capture_output=True,
+            text=True
+        )
+        
+        print("\n--- FoF Halo Finder Complete! ---")
+        
+        if result.stdout:
+            print("Output:\n", result.stdout)
+            
+        if result.stderr:
+            print("\nError Details (if any):\n", result.stderr)
