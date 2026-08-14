@@ -131,3 +131,37 @@ class ReionYugaRunner:
             
         if result.stderr:
             print("\nError Details (if any):\n", result.stderr)
+            
+            
+            
+            
+            
+            
+class DviSuktaRunner:
+    def __init__(self, base_dir="."):
+        import os
+        from pathlib import Path
+        self.base_dir = Path(base_dir).resolve()
+        self.exec_path = self.base_dir / "external" / "dvisukta" / "bispec"
+        
+        if not self.exec_path.exists():
+            raise FileNotFoundError(f"Executable not found at {self.exec_path}. Did you run 'make' in external/dvisukta?")
+
+    def run(self):
+        import subprocess
+        print(f"Starting DviSukta Bispectrum engine using {self.exec_path}...")
+        
+        result = subprocess.run(
+            [str(self.exec_path)], 
+            cwd=str(self.base_dir),
+            capture_output=True,
+            text=True
+        )
+        
+        print("\n--- DviSukta Engine Complete! ---")
+        
+        if result.stdout:
+            print("Output:\n", result.stdout)
+            
+        if result.stderr:
+            print("\nError Details (if any):\n", result.stderr)
