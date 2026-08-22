@@ -16,10 +16,12 @@ class CosmoVis:
     def __init__(self, data_dir="."):
         self.data_dir = Path(data_dir).resolve()
 
-    def animate_hi_map(self, output_filename="HImap_Simulation.mp4",
+    def animate_hi_map(self, mode="video", target_redshift=None, output_filename=None,
+                       show_grid=False, grid_color='white',
                        rotate=True, rotation_speed=0.2, elev0=3, azim0=30,
                        pause_per_redshift_sec=0.0, freeze_end_sec=2.0):
-        print("Initializing 4K PyVista HI Map Renderer...")
+        
+        print(f"Initializing 3D PyVista HI Map Renderer (Mode: {mode.upper()})...")
         
         vmax = 100.0
         frame_rate = 30
@@ -33,12 +35,10 @@ class CosmoVis:
         file_list = []
         for fn in glob.glob(i_hi_map):
             m = re.match(r'HI_map_(\d+\.?\d*)$', os.path.basename(fn))
-            if not m: 
-                continue
-            z = float(m.group(1))
-            file_list.append((z, fn))
+            if not m: continue
+            file_list.append((float(m.group(1)), fn))
         
-        file_list.sort(reverse=True, key=lambda x: x[0])
+        file_list = sorted(list(set(file_list)), key=lambda x: x[0], reverse=True)
 
         def load_frames():
             frames = []
@@ -50,8 +50,7 @@ class CosmoVis:
                     if mm and abs(float(mm.group(2)) - z) < 1e-6:
                         xhi = float(mm.group(1))
                         break
-                if xhi is None: 
-                    continue
+                if xhi is None: continue
                 
                 with open(fn, 'rb') as f:
                     mx, my, mz = np.fromfile(f, count=3, dtype=np.int32)
@@ -62,15 +61,60 @@ class CosmoVis:
             return frames
 
         frames = load_frames()
-        if not frames: 
-            raise RuntimeError("No valid HI_map + pk.ionzs pairs found.")
+        if not frames: raise RuntimeError("No valid HI_map pairs found.")
 
         nx, ny, nz = frames[0][2].shape
+
+        # ==========================================
+        # MODE 1: SINGLE IMAGE EXPORT
+        # ==========================================
+        if mode == "image":
+            if target_redshift is None:
+                target_frame = frames[-1] 
+            else:
+                z_vals = [f[0] for f in frames]
+                closest_idx = np.argmin(np.abs(np.array(z_vals) - float(target_redshift)))
+                target_frame = frames[closest_idx]
+            
+            z_val, xhi_val, arr_val = target_frame
+            if output_filename is None:
+                output_filename = f"HImap_3D_z{z_val:.3f}.png"
+
+            grid = pv.ImageData(dimensions=(nx + 1, ny + 1, nz + 1), spacing=(1, 1, 1), origin=(0, 0, 0))
+            grid.cell_data['values'] = arr_val.flatten(order='F')
+            
+            plotter = pv.Plotter(off_screen=True, window_size=window_size)
+            plotter.set_background("black")
+            plotter.add_volume(grid, scalars='values', cmap='plasma', clim=[0, vmax], opacity='linear', shade=True, show_scalar_bar=False)
+            plotter.add_scalar_bar(title=r'T(beta) x(HI) [mK]', title_font_size=30, label_font_size=26, vertical=False, position_x=0.25, position_y=0.02, width=0.5, height=0.04, color='white')
+            plotter.add_text(f'z={z_val:.3f}\nxHI={xhi_val:.3f}', position='lower_right', font_size=20, color='white')
+            
+            if show_grid:
+                plotter.show_bounds(grid='front', location='outer', all_edges=True, color=grid_color)
+                
+            # FIX: Lock camera directly to the front face (XY plane) for static images
+            plotter.camera_position = 'xy'
+            plotter.camera.zoom(0.8) # Slight zoom out so the bounding box fits cleanly
+            
+            plotter.screenshot(output_filename)
+            plotter.close()
+            print(f"✅ 3D Image saved as '{output_filename}'")
+            return
+
+        # ==========================================
+        # MODE 2: FULL VIDEO ANIMATION
+        # ==========================================
+        if output_filename is None:
+            output_filename = "HImap_3D_Simulation.mp4"
+
         grid_template = pv.ImageData(dimensions=(nx + 1, ny + 1, nz + 1), spacing=(1, 1, 1), origin=(0, 0, 0))
 
         plotter = pv.Plotter(off_screen=True, window_size=window_size)
         plotter.open_movie(output_filename, framerate=frame_rate)
         plotter.set_background("black")
+        
+        if show_grid:
+            plotter.show_bounds(grid='front', location='outer', all_edges=True, color=grid_color)
 
         grid = grid_template.copy()
         grid.cell_data['values'] = frames[0][2].flatten(order='F')
@@ -87,18 +131,15 @@ class CosmoVis:
         freeze_end_frames = int(frame_rate * freeze_end_sec)
         total_frames = (len(frames) * pause_frames) + ((len(frames) - 1) * frames_per_step) + freeze_end_frames
         
-        pbar = tqdm(total=total_frames, desc="Rendering PyVista Video", unit="frame")
+        pbar = tqdm(total=total_frames, desc="Rendering 3D Video", unit="frame")
         angle = 0
 
-        print("Rendering Redshift Evolution...")
         for i in range(len(frames) - 1):
             z1, xhi1, arr1 = frames[i]
             z2, xhi2, arr2 = frames[i + 1]
 
-            # 1. Hold on current redshift
             for _ in range(pause_frames):
-                if rotate: 
-                    angle += rotation_speed
+                if rotate: angle += rotation_speed
                 grid = grid_template.copy()
                 grid.cell_data['values'] = arr1.flatten(order='F')
                 plotter.remove_actor(vol)
@@ -111,15 +152,13 @@ class CosmoVis:
                 plotter.remove_actor(info_text)
                 pbar.update(1)
 
-            # 2. Interpolate to next redshift
             for j in range(frames_per_step):
                 t = j / frames_per_step
                 z_interp = (1 - t) * z1 + t * z2
                 xhi_interp = (1 - t) * xhi1 + t * xhi2
                 arr_interp = (1 - t) * arr1 + t * arr2
 
-                if rotate: 
-                    angle += rotation_speed
+                if rotate: angle += rotation_speed
                 grid = grid_template.copy()
                 grid.cell_data['values'] = arr_interp.flatten(order='F')
                 plotter.remove_actor(vol)
@@ -132,12 +171,9 @@ class CosmoVis:
                 plotter.remove_actor(info_text)
                 pbar.update(1)
 
-        # 3. Freeze at final redshift
-        print("Rendering Final Freeze...")
         z_final, xhi_final, arr_final = frames[-1]
         for _ in range(pause_frames + freeze_end_frames):
-            if rotate: 
-                angle += rotation_speed
+            if rotate: angle += rotation_speed
             grid = grid_template.copy()
             grid.cell_data['values'] = arr_final.flatten(order='F')
             plotter.remove_actor(vol)
@@ -152,11 +188,14 @@ class CosmoVis:
 
         pbar.close()
         plotter.close()
-        print(f"Animation saved as '{output_filename}'")
+        print(f"✅ 3D Animation saved as '{output_filename}'")
 
-    def animate_hi_map_2d(self, output_filename="HImap_2D_Simulation.mp4",
+
+    def animate_hi_map_2d(self, mode="video", target_redshift=None, output_filename=None,
+                          show_grid=False, grid_color='white',
                           pause_per_redshift_sec=0.0, freeze_end_sec=2.0):
-        print("Initializing 2D Matplotlib HI Map Renderer (Fallback)...")
+                          
+        print(f"Initializing 2D Matplotlib HI Map Renderer (Mode: {mode.upper()})...")
         
         vmax = 100.0
         fps = 30
@@ -171,13 +210,12 @@ class CosmoVis:
         file_list = []
         for fn in glob.glob(i_hi_map):
             m = re.match(r'HI_map_(\d+\.?\d*)$', os.path.basename(fn))
-            if m: 
-                file_list.append((float(m.group(1)), fn))
-        file_list.sort(reverse=True, key=lambda x: x[0])
+            if m: file_list.append((float(m.group(1)), fn))
+            
+        file_list = sorted(list(set(file_list)), key=lambda x: x[0], reverse=True)
 
-        print("Loading 2D slices...")
         frames = []
-        for z, fn in tqdm(file_list, desc="Loading data", unit="file"):
+        for z, fn in file_list:
             Tb = 22.0 * np.sqrt((1 + z) / 7.0)
             xhi = None
             for pf in glob.glob(i_pk):
@@ -185,8 +223,7 @@ class CosmoVis:
                 if mm and abs(float(mm.group(2)) - z) < 1e-6:
                     xhi = float(mm.group(1))
                     break
-            if xhi is None: 
-                continue
+            if xhi is None: continue
             
             with open(fn, 'rb') as f:
                 mx, my, mz = np.fromfile(f, count=3, dtype=np.int32)
@@ -196,8 +233,52 @@ class CosmoVis:
             arr_slice = np.clip(arr_3d[:, :, mz // 2], 0, vmax)
             frames.append((z, xhi, arr_slice))
 
-        if not frames: 
-            raise RuntimeError("No valid HI_map pairs found.")
+        if not frames: raise RuntimeError("No valid HI_map pairs found.")
+
+        # Helper function to apply the Matplotlib grid
+        def setup_2d_axes(ax):
+            if show_grid:
+                ax.grid(color=grid_color, linestyle='--', linewidth=0.5, alpha=0.5)
+                ax.tick_params(colors=grid_color, direction='in')
+                for spine in ax.spines.values(): 
+                    spine.set_color(grid_color)
+            else:
+                ax.axis('off')
+
+        # ==========================================
+        # MODE 1: SINGLE IMAGE EXPORT
+        # ==========================================
+        if mode == "image":
+            if target_redshift is None:
+                target_frame = frames[-1]
+            else:
+                z_vals = [f[0] for f in frames]
+                closest_idx = np.argmin(np.abs(np.array(z_vals) - float(target_redshift)))
+                target_frame = frames[closest_idx]
+                
+            z_val, xhi_val, arr_val = target_frame
+            if output_filename is None:
+                output_filename = f"HImap_2D_z{z_val:.3f}.png"
+                
+            fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
+            fig.patch.set_facecolor('black')
+            ax.set_facecolor('black')
+            setup_2d_axes(ax)
+            
+            ax.imshow(arr_val, cmap='plasma', vmin=0, vmax=vmax, origin='lower')
+            ax.text(0.02, 0.95, f'z = {z_val:.3f}\nxHI = {xhi_val:.3f}', transform=ax.transAxes, color='white', fontsize=12)
+            
+            plt.tight_layout()
+            plt.savefig(output_filename, facecolor=fig.get_facecolor(), edgecolor='none')
+            plt.close()
+            print(f"✅ 2D Image saved as '{output_filename}'")
+            return
+
+        # ==========================================
+        # MODE 2: FULL VIDEO ANIMATION
+        # ==========================================
+        if output_filename is None:
+            output_filename = "HImap_2D_Simulation.mp4"
 
         frames_data, frames_z, frames_xhi = [], [], []
         for i in range(len(frames) - 1):
@@ -226,7 +307,7 @@ class CosmoVis:
         fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
         fig.patch.set_facecolor('black')
         ax.set_facecolor('black')
-        ax.axis('off')
+        setup_2d_axes(ax)
         
         cax = ax.imshow(frames_data[0], cmap='plasma', vmin=0, vmax=vmax, origin='lower')
         txt = ax.text(0.02, 0.95, '', transform=ax.transAxes, color='white', fontsize=12)
@@ -236,14 +317,15 @@ class CosmoVis:
             txt.set_text(f'z = {frames_z[idx]:.3f}\nxHI = {frames_xhi[idx]:.3f}')
             return cax, txt
 
-        print(f"Starting 2D Matplotlib Render ({total_frames} frames)...")
-        pbar = tqdm(total=total_frames, unit='frames', desc="Rendering MP4")
+        pbar = tqdm(total=total_frames, unit='frames', desc="Rendering 2D Video")
         ani = FuncAnimation(fig, update, frames=total_frames, interval=1000/fps, blit=False)
         writer = FFMpegWriter(fps=fps, bitrate=20000)
         ani.save(output_filename, writer=writer, progress_callback=lambda i, n: pbar.update(1))
         pbar.close()
         plt.close()
-        print(f"2D Animation saved as '{output_filename}'")
+        print(f"✅ 2D Animation saved as '{output_filename}'")
+
+    
 
     def animate_nbody(self, output_filename="BrahmAstra_Nbody.mp4", 
                       show_grid=False, grid_color='purple',

@@ -1,0 +1,100 @@
+
+[N-Body (Dark Matter)] STARTING...
+Starting N-body engine using /Users/pragunnepal/Downloads/BrahmAstra/external/nbody/nbody_comp...
+
+--- N-body Engine Complete! ---
+Output:
+ DM_m= 1.089507e-02 10^10 M_sun 	 L_box=2.240000e+00 Mpc
+No of threads = 1
+norml=3.051758e-05	CC=1.138466e-02	rho_b_inv=8.000000e+00
+ok delta_fill time = 0.000000e+00
+ok cal_pow time = 0.000000e+00
+ok Zel_move time = 0.000000e+00
+ok cic = 0.000000e+00
+delta_aap=2.499994e-03
+(z=15.0) time for  Nbody loop = 0.000000e+00	time for write output = 0.000000e+00
+delta_aap=3.825441e-03
+(z=12.5) time for  Nbody loop = 0.000000e+00	time for write output = 0.000000e+00
+delta_aap=2.062902e-03
+(z=10.3) time for  Nbody loop = 0.000000e+00	time for write output = 0.000000e+00
+delta_aap=7.237047e-04
+(z=8.5) time for  Nbody loop = 0.000000e+00	time for write output = 0.000000e+00
+delta_aap=3.887944e-03
+(z=7.0) time for  Nbody loop = 0.000000e+00	time for write output = 0.000000e+00
+number of step = 21
+done. Total time taken = 0hr 0min 0sec
+
+
+[FoF (Halo Catalog)] STARTING...
+Starting FoF Halo Finder using /Users/pragunnepal/Downloads/BrahmAstra/external/fof/fof_main...
+
+--- FoF Halo Finder Complete! ---
+Output:
+ (15.0)nbody output_flag=0, NF=2
+Total number of clusters=0
+(for 15.0) Time taken = 0hr 0min 0sec
+(12.5)nbody output_flag=0, NF=2
+Total number of clusters=0
+(for 12.5) Time taken = 0hr 0min 0sec
+(10.3)nbody output_flag=0, NF=2
+Total number of clusters=0
+(for 10.3) Time taken = 0hr 0min 0sec
+(8.5)nbody output_flag=0, NF=2
+Total number of clusters=1
+(for 8.5) Time taken = 0hr 0min 0sec
+(7.0)nbody output_flag=0, NF=2
+Total number of clusters=3
+(for 7.0) Time taken = 0hr 0min 0sec
+done FoF. Total time taken = 0hr 0min 0sec
+
+
+[ReionYuga (HI Maps)] STARTING...
+Starting ReionYuga Ionization engine using /Users/pragunnepal/Downloads/BrahmAstra/external/reionyuga/ionz_main...
+
+--- ReionYuga Engine Complete! ---
+Output:
+ ok read nbody output = -2.121996e-314
+ok read halo catalogue = 0.000000e+00
+No of threads = 1
+ok cic_vmass= 0.000000e+00
+ok smoothing = 0.000000e+00
+vol. avg. x_HI=1.000000e+00, mass avg. x_HI=1.000000e+00
+mass avg. x_HI=1.000000e+00
+ok time taken= 0.000000e+00
+
+ok read nbody output = 0.000000e+00
+ok read halo catalogue = 0.000000e+00
+ok cic_vmass= 0.000000e+00
+ok smoothing = 0.000000e+00
+vol. avg. x_HI=1.000000e+00, mass avg. x_HI=1.000000e+00
+mass avg. x_HI=1.000000e+00
+ok time taken= 0.000000e+00
+
+ok read nbody output = 0.000000e+00
+ok read halo catalogue = 0.000000e+00
+ok cic_vmass= 0.000000e+00
+ok smoothing = 0.000000e+00
+vol. avg. x_HI=1.000000e+00, mass avg. x_HI=1.000000e+00
+mass avg. x_HI=1.000000e+00
+ok time taken= 0.000000e+00
+
+ok read nbody output = 0.000000e+00
+ok read halo catalogue = 0.000000e+00
+ok cic_vmass= 0.000000e+00
+ok smoothing = 0.000000e+00
+vol. avg. x_HI=9.726562e-01, mass avg. x_HI=9.460668e-01
+mass avg. x_HI=9.460668e-01
+ok time taken= 0.000000e+00
+
+ok read nbody output = 0.000000e+00
+ok read halo catalogue = 0.000000e+00
+ok cic_vmass= 0.000000e+00
+ok smoothing = 0.000000e+00
+vol. avg. x_HI=7.507324e-01, mass avg. x_HI=6.488829e-01
+mass avg. x_HI=6.488829e-01
+ok time taken= 0.000000e+00
+
+done. Total time taken = 0hr 0min 0sec
+
+
+[DviSukta (Bispectrum)] STARTING...
