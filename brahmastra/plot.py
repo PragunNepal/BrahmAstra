@@ -17,16 +17,21 @@ class CosmoVis:
         self.data_dir = Path(data_dir).resolve()
 
     def animate_hi_map(self, mode="video", target_redshift=None, output_filename=None,
+                       output_dir="reionyuga_vis", cmap="plasma",
                        show_grid=False, grid_color='white',
-                       rotate=True, rotation_speed=0.2, elev0=3, azim0=30,
-                       pause_per_redshift_sec=0.0, freeze_end_sec=2.0):
+                       rotation_mode=7, rotation_speed=0.2, elev0=0, azim0=0,
+                       pause_per_redshift_sec=0.0, freeze_at_z=None, specific_freeze_sec=2.0, freeze_end_sec=2.0,
+                       zoom_target_z=None, zoom_factor=1.5, zoom_duration_sec=2.0, revert_zoom_sec=0.0):
         
         print(f"Initializing 3D PyVista HI Map Renderer (Mode: {mode.upper()})...")
+        
+        out_path = self.data_dir / output_dir
+        out_path.mkdir(exist_ok=True)
         
         vmax = 100.0
         frame_rate = 30
         window_size = (3840, 2160)
-        frames_per_step = 30 
+        frames_per_dz = 30 # Dynamic timeline pacing
         
         ionz_dir = self.data_dir / "ionz_out"
         i_hi_map = str(ionz_dir / 'HI_map_*')
@@ -39,6 +44,11 @@ class CosmoVis:
             file_list.append((float(m.group(1)), fn))
         
         file_list = sorted(list(set(file_list)), key=lambda x: x[0], reverse=True)
+
+        if freeze_at_z is None:
+            freeze_at_z = []
+        elif not isinstance(freeze_at_z, list):
+            freeze_at_z = [freeze_at_z]
 
         def load_frames():
             frames = []
@@ -64,6 +74,7 @@ class CosmoVis:
         if not frames: raise RuntimeError("No valid HI_map pairs found.")
 
         nx, ny, nz = frames[0][2].shape
+        center_x, center_y, center_z = nx / 2.0, ny / 2.0, nz / 2.0
 
         # ==========================================
         # MODE 1: SINGLE IMAGE EXPORT
@@ -79,26 +90,32 @@ class CosmoVis:
             z_val, xhi_val, arr_val = target_frame
             if output_filename is None:
                 output_filename = f"HImap_3D_z{z_val:.3f}.png"
+                
+            final_output = str(out_path / output_filename)
 
             grid = pv.ImageData(dimensions=(nx + 1, ny + 1, nz + 1), spacing=(1, 1, 1), origin=(0, 0, 0))
             grid.cell_data['values'] = arr_val.flatten(order='F')
             
             plotter = pv.Plotter(off_screen=True, window_size=window_size)
             plotter.set_background("black")
-            plotter.add_volume(grid, scalars='values', cmap='plasma', clim=[0, vmax], opacity='linear', shade=True, show_scalar_bar=False)
+            
+            vol = plotter.add_volume(grid, scalars='values', cmap=cmap, clim=[0, vmax], opacity='linear', shade=True, show_scalar_bar=False)
+            vol.origin = (center_x, center_y, center_z)
+            
             plotter.add_scalar_bar(title=r'T(beta) x(HI) [mK]', title_font_size=30, label_font_size=26, vertical=False, position_x=0.25, position_y=0.02, width=0.5, height=0.04, color='white')
             plotter.add_text(f'z={z_val:.3f}\nxHI={xhi_val:.3f}', position='lower_right', font_size=20, color='white')
             
             if show_grid:
-                plotter.show_bounds(grid='front', location='outer', all_edges=True, color=grid_color)
+                outline_actor = plotter.add_mesh(grid.outline(), color=grid_color, line_width=2)
+                outline_actor.origin = (center_x, center_y, center_z)
                 
-            # FIX: Lock camera directly to the front face (XY plane) for static images
             plotter.camera_position = 'xy'
-            plotter.camera.zoom(0.8) # Slight zoom out so the bounding box fits cleanly
+            plotter.camera.focal_point = (center_x, center_y, center_z)
+            plotter.camera.zoom(0.8) 
             
-            plotter.screenshot(output_filename)
+            plotter.screenshot(final_output)
             plotter.close()
-            print(f"✅ 3D Image saved as '{output_filename}'")
+            print(f"✅ 3D Image saved to '{final_output}'")
             return
 
         # ==========================================
@@ -106,100 +123,132 @@ class CosmoVis:
         # ==========================================
         if output_filename is None:
             output_filename = "HImap_3D_Simulation.mp4"
+            
+        final_output = str(out_path / output_filename)
 
-        grid_template = pv.ImageData(dimensions=(nx + 1, ny + 1, nz + 1), spacing=(1, 1, 1), origin=(0, 0, 0))
-
-        plotter = pv.Plotter(off_screen=True, window_size=window_size)
-        plotter.open_movie(output_filename, framerate=frame_rate)
-        plotter.set_background("black")
-        
-        if show_grid:
-            plotter.show_bounds(grid='front', location='outer', all_edges=True, color=grid_color)
-
-        grid = grid_template.copy()
-        grid.cell_data['values'] = frames[0][2].flatten(order='F')
-        vol = plotter.add_volume(grid, scalars='values', cmap='plasma', clim=[0, vmax], opacity='linear', shade=True, show_scalar_bar=False)
-
-        plotter.add_scalar_bar(title=r'T(beta) x(HI) [mK]', title_font_size=30, label_font_size=26, vertical=False, position_x=0.25, position_y=0.02, width=0.5, height=0.04, color='white')
-
-        plotter.camera_position = 'iso'
-        plotter.camera.elevation = elev0
-        plotter.camera.azimuth = azim0
-        plotter.camera.zoom(0.6)
-
-        pause_frames = int(frame_rate * pause_per_redshift_sec)
-        freeze_end_frames = int(frame_rate * freeze_end_sec)
-        total_frames = (len(frames) * pause_frames) + ((len(frames) - 1) * frames_per_step) + freeze_end_frames
-        
-        pbar = tqdm(total=total_frames, desc="Rendering 3D Video", unit="frame")
-        angle = 0
-
+        render_sequence = []
         for i in range(len(frames) - 1):
             z1, xhi1, arr1 = frames[i]
             z2, xhi2, arr2 = frames[i + 1]
 
-            for _ in range(pause_frames):
-                if rotate: angle += rotation_speed
-                grid = grid_template.copy()
-                grid.cell_data['values'] = arr1.flatten(order='F')
-                plotter.remove_actor(vol)
-                vol = plotter.add_volume(grid, scalars='values', cmap='plasma', clim=[0, vmax], opacity='linear', shade=True, show_scalar_bar=False)
-                info_text = plotter.add_text(f'z={z1:.3f}\nxHI={xhi1:.3f}', position='lower_right', font_size=20, color='white')
-                plotter.camera.azimuth = azim0 + angle
-                plotter.camera.elevation = elev0
-                plotter.render()
-                plotter.write_frame()
-                plotter.remove_actor(info_text)
-                pbar.update(1)
+            for _ in range(int(frame_rate * pause_per_redshift_sec)):
+                render_sequence.append((z1, xhi1, arr1))
 
-            for j in range(frames_per_step):
-                t = j / frames_per_step
+            if any(abs(z1 - fz) < 1e-3 for fz in freeze_at_z):
+                for _ in range(int(frame_rate * specific_freeze_sec)):
+                    render_sequence.append((z1, xhi1, arr1))
+
+            dz = abs(z1 - z2)
+            dynamic_frames = max(1, int(dz * frames_per_dz))
+
+            for j in range(dynamic_frames):
+                t = j / dynamic_frames
                 z_interp = (1 - t) * z1 + t * z2
                 xhi_interp = (1 - t) * xhi1 + t * xhi2
                 arr_interp = (1 - t) * arr1 + t * arr2
-
-                if rotate: angle += rotation_speed
-                grid = grid_template.copy()
-                grid.cell_data['values'] = arr_interp.flatten(order='F')
-                plotter.remove_actor(vol)
-                vol = plotter.add_volume(grid, scalars='values', cmap='plasma', clim=[0, vmax], opacity='linear', shade=True, show_scalar_bar=False)
-                info_text = plotter.add_text(f'z={z_interp:.3f}\nxHI={xhi_interp:.3f}', position='lower_right', font_size=20, color='white')
-                plotter.camera.azimuth = azim0 + angle
-                plotter.camera.elevation = elev0
-                plotter.render()
-                plotter.write_frame()
-                plotter.remove_actor(info_text)
-                pbar.update(1)
+                render_sequence.append((z_interp, xhi_interp, arr_interp))
 
         z_final, xhi_final, arr_final = frames[-1]
-        for _ in range(pause_frames + freeze_end_frames):
-            if rotate: angle += rotation_speed
-            grid = grid_template.copy()
-            grid.cell_data['values'] = arr_final.flatten(order='F')
-            plotter.remove_actor(vol)
-            vol = plotter.add_volume(grid, scalars='values', cmap='plasma', clim=[0, vmax], opacity='linear', shade=True, show_scalar_bar=False)
-            info_text = plotter.add_text(f'z={z_final:.3f}\nxHI={xhi_final:.3f}', position='lower_right', font_size=20, color='white')
-            plotter.camera.azimuth = azim0 + angle
-            plotter.camera.elevation = elev0
+        if any(abs(z_final - fz) < 1e-3 for fz in freeze_at_z):
+            for _ in range(int(frame_rate * specific_freeze_sec)):
+                render_sequence.append((z_final, xhi_final, arr_final))
+        for _ in range(int(frame_rate * freeze_end_sec)):
+            render_sequence.append((z_final, xhi_final, arr_final))
+
+        total_frames = len(render_sequence)
+
+        zoom_multipliers = [1.0] * total_frames
+        if zoom_target_z is not None:
+            start_idx = -1
+            for i, (z, _, _) in enumerate(render_sequence):
+                if z <= zoom_target_z:
+                    start_idx = i
+                    break
+            
+            if start_idx != -1:
+                zoom_frames = max(1, int(frame_rate * zoom_duration_sec))
+                step_mult = zoom_factor ** (1.0 / zoom_frames)
+                for i in range(start_idx, min(start_idx + zoom_frames, total_frames)):
+                    zoom_multipliers[i] = step_mult
+                    
+                if revert_zoom_sec > 0:
+                    revert_frames = max(1, int(frame_rate * revert_zoom_sec))
+                    revert_start = start_idx + zoom_frames
+                    revert_step = (1.0 / zoom_factor) ** (1.0 / revert_frames)
+                    for i in range(revert_start, min(revert_start + revert_frames, total_frames)):
+                        zoom_multipliers[i] = revert_step
+
+        grid = pv.ImageData(dimensions=(nx + 1, ny + 1, nz + 1), spacing=(1, 1, 1), origin=(0, 0, 0))
+        grid.cell_data['values'] = render_sequence[0][2].flatten(order='F')
+        
+        plotter = pv.Plotter(off_screen=True, window_size=window_size)
+        plotter.open_movie(final_output, framerate=frame_rate)
+        plotter.set_background("black")
+        
+        vol = plotter.add_volume(grid, scalars='values', cmap=cmap, clim=[0, vmax], opacity='linear', shade=True, show_scalar_bar=False)
+        vol.origin = (center_x, center_y, center_z) 
+        
+        outline_actor = None
+        if show_grid: 
+            outline_actor = plotter.add_mesh(grid.outline(), color=grid_color, line_width=2)
+            outline_actor.origin = (center_x, center_y, center_z)
+
+        plotter.add_scalar_bar(title=r'T(beta) x(HI) [mK]', title_font_size=30, label_font_size=26, vertical=False, position_x=0.25, position_y=0.02, width=0.5, height=0.04, color='white')
+
+        plotter.camera_position = 'xy'
+        plotter.camera.focal_point = (center_x, center_y, center_z)
+        plotter.camera.elevation = elev0
+        plotter.camera.azimuth = azim0
+        plotter.camera.zoom(0.6)
+
+        pbar = tqdm(total=total_frames, desc="Rendering 3D Video", unit="frame")
+        
+        info_text_actor = None
+        rx, ry, rz = 0.0, 0.0, 0.0
+
+        for i, (z_val, xhi_val, arr_val) in enumerate(render_sequence):
+            
+            grid.cell_data['values'] = arr_val.flatten(order='F')
+            
+            if info_text_actor is not None:
+                plotter.remove_actor(info_text_actor)
+            info_text_actor = plotter.add_text(f'z={z_val:.3f}\nxHI={xhi_val:.3f}', position='lower_right', font_size=20, color='white')
+
+            if rotation_mode in [1, 4, 5, 7]: rx += rotation_speed
+            if rotation_mode in [2, 4, 6, 7]: ry += rotation_speed
+            if rotation_mode in [3, 5, 6, 7]: rz += rotation_speed
+
+            vol.orientation = (rx, ry, rz)
+            if show_grid and outline_actor:
+                outline_actor.orientation = (rx, ry, rz)
+
+            if zoom_multipliers[i] != 1.0:
+                plotter.camera.zoom(zoom_multipliers[i])
+                
+            plotter.reset_camera_clipping_range()
+
             plotter.render()
             plotter.write_frame()
-            plotter.remove_actor(info_text)
             pbar.update(1)
 
         pbar.close()
         plotter.close()
-        print(f"✅ 3D Animation saved as '{output_filename}'")
+        print(f"✅ 3D Animation saved to '{final_output}'")
 
 
     def animate_hi_map_2d(self, mode="video", target_redshift=None, output_filename=None,
+                          output_dir="reionyuga_vis", cmap="plasma",
                           show_grid=False, grid_color='white',
                           pause_per_redshift_sec=0.0, freeze_end_sec=2.0):
                           
         print(f"Initializing 2D Matplotlib HI Map Renderer (Mode: {mode.upper()})...")
         
+        out_path = self.data_dir / output_dir
+        out_path.mkdir(exist_ok=True)
+        
         vmax = 100.0
         fps = 30
-        frames_per_step = 30
+        frames_per_dz = 30 # Dynamic timeline pacing
         pause_frames = int(fps * pause_per_redshift_sec)
         freeze_end_frames = int(fps * freeze_end_sec)
         
@@ -235,7 +284,6 @@ class CosmoVis:
 
         if not frames: raise RuntimeError("No valid HI_map pairs found.")
 
-        # Helper function to apply the Matplotlib grid
         def setup_2d_axes(ax):
             if show_grid:
                 ax.grid(color=grid_color, linestyle='--', linewidth=0.5, alpha=0.5)
@@ -260,18 +308,20 @@ class CosmoVis:
             if output_filename is None:
                 output_filename = f"HImap_2D_z{z_val:.3f}.png"
                 
+            final_output = str(out_path / output_filename)
+                
             fig, ax = plt.subplots(figsize=(6, 6), dpi=300)
             fig.patch.set_facecolor('black')
             ax.set_facecolor('black')
             setup_2d_axes(ax)
             
-            ax.imshow(arr_val, cmap='plasma', vmin=0, vmax=vmax, origin='lower')
+            ax.imshow(arr_val, cmap=cmap, vmin=0, vmax=vmax, origin='lower')
             ax.text(0.02, 0.95, f'z = {z_val:.3f}\nxHI = {xhi_val:.3f}', transform=ax.transAxes, color='white', fontsize=12)
             
             plt.tight_layout()
-            plt.savefig(output_filename, facecolor=fig.get_facecolor(), edgecolor='none')
+            plt.savefig(final_output, facecolor=fig.get_facecolor(), edgecolor='none')
             plt.close()
-            print(f"✅ 2D Image saved as '{output_filename}'")
+            print(f"✅ 2D Image saved to '{final_output}'")
             return
 
         # ==========================================
@@ -279,6 +329,8 @@ class CosmoVis:
         # ==========================================
         if output_filename is None:
             output_filename = "HImap_2D_Simulation.mp4"
+            
+        final_output = str(out_path / output_filename)
 
         frames_data, frames_z, frames_xhi = [], [], []
         for i in range(len(frames) - 1):
@@ -290,8 +342,11 @@ class CosmoVis:
                 frames_z.append(z1)
                 frames_xhi.append(xhi1)
                 
-            for j in range(frames_per_step):
-                t = j / frames_per_step
+            dz = abs(z1 - z2)
+            dynamic_frames = max(1, int(dz * frames_per_dz))
+            
+            for j in range(dynamic_frames):
+                t = j / dynamic_frames
                 arr_interp = (1 - t) * arr1 + t * arr2
                 frames_data.append(arr_interp)
                 frames_z.append((1 - t) * z1 + t * z2)
@@ -309,7 +364,7 @@ class CosmoVis:
         ax.set_facecolor('black')
         setup_2d_axes(ax)
         
-        cax = ax.imshow(frames_data[0], cmap='plasma', vmin=0, vmax=vmax, origin='lower')
+        cax = ax.imshow(frames_data[0], cmap=cmap, vmin=0, vmax=vmax, origin='lower')
         txt = ax.text(0.02, 0.95, '', transform=ax.transAxes, color='white', fontsize=12)
         
         def update(idx):
@@ -320,10 +375,10 @@ class CosmoVis:
         pbar = tqdm(total=total_frames, unit='frames', desc="Rendering 2D Video")
         ani = FuncAnimation(fig, update, frames=total_frames, interval=1000/fps, blit=False)
         writer = FFMpegWriter(fps=fps, bitrate=20000)
-        ani.save(output_filename, writer=writer, progress_callback=lambda i, n: pbar.update(1))
+        ani.save(final_output, writer=writer, progress_callback=lambda i, n: pbar.update(1))
         pbar.close()
         plt.close()
-        print(f"✅ 2D Animation saved as '{output_filename}'")
+        print(f"✅ 2D Animation saved to '{final_output}'")
 
     
 
