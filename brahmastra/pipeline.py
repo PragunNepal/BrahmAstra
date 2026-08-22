@@ -1,40 +1,57 @@
 from brahmastra.config import ConfigManager
 from brahmastra.engine import NBodyRunner, FoFRunner, ReionYugaRunner, DviSuktaRunner
+from tqdm.auto import tqdm  # <-- NEW: Import the progress bar
+import sys
 
 class BrahmAstraPipeline:
-    def __init__(self, base_dir="."):
-        self.config = ConfigManager(base_dir)
+    def __init__(self, params=None, base_dir="."):
+        self.config = ConfigManager(custom_params=params, base_dir=base_dir)
         self.nbody = NBodyRunner(base_dir)
         self.fof = FoFRunner(base_dir)
         self.reion = ReionYugaRunner(base_dir)
         self.dvisukta = DviSuktaRunner(base_dir)
 
-    def run_full_simulation(self, grid_size=256, redshifts=[8.5], **kwargs):
-        """
-        Executes the entire BrahmAstra pipeline from start to finish.
-        """
+    def run_full_simulation(self):
         print("==================================================")
-        print("INITIALIZING BRAHMASTRA COSMOLOGY PIPELINE")
+        print(" INITIALIZING BRAHMASTRA COSMOLOGY PIPELINE")
         print("==================================================\n")
 
-        # 1. Write configurations dynamically
         print("-> Configuring C-Backends...")
-        self.config.write_nbody_config(grid_size=grid_size, redshifts=redshifts, **kwargs)
-        self.config.write_bispec_config() # Can pass kwargs here later if needed
-        print("")
+        grid_size = self.config.get("grid_size")
+        redshifts = self.config.get("redshifts")
+        
+        self.config.write_nbody_config(grid_size=grid_size, redshifts=redshifts)
+        self.config.write_bispec_config() 
 
-        # 2. Run N-body Engine (Dark Matter Grid)
-        self.nbody.run()
+        # Define the 4 engines in order of their physics dependency
+        engines = [
+            ("N-Body (Dark Matter)", self.nbody),
+            ("FoF (Halo Catalog)", self.fof),
+            ("ReionYuga (HI Maps)", self.reion),
+            ("DviSukta (Bispectrum)", self.dvisukta)
+        ]
 
-        # 3. Run Friends-of-Friends (Halo Catalog)
-        self.fof.run()
-
-        # 4. Run ReionYuga (Ionization Maps)
-        self.reion.run()
-
-        # 5. Run DviSukta (Bispectrum Analyzer)
-        self.dvisukta.run()
+        print("\n-> Launching Compute Phase...")
+        
+        # Open a log file to hide the messy C-output
+        log_path = self.config.base_dir / "simulation.log"
+        with open(log_path, "w") as log_file:
+            
+            # The sleek Jupyter Progress Bar!
+            for name, engine in tqdm(engines, desc="Pipeline Progress", unit="engine"):
+                log_file.write(f"\n[{name}] STARTING...\n")
+                
+                # Temporarily redirect Python's print statements to the log file
+                original_stdout = sys.stdout
+                sys.stdout = log_file
+                
+                try:
+                    engine.run()
+                finally:
+                    # Restore printing to the Jupyter notebook
+                    sys.stdout = original_stdout
 
         print("\n==================================================")
         print("FULL SIMULATION PIPELINE COMPLETE")
+        print(f"Detailed logs saved to: {log_path.name}")
         print("==================================================")

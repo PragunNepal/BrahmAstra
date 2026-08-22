@@ -108,23 +108,52 @@ class DviSuktaRunner:
         self.exec_path = self.base_dir / "external" / "dvisukta" / "bispec"
         
         if not self.exec_path.exists():
-            raise FileNotFoundError(f"Executable not found at {self.exec_path}. Did you run 'make' in external/dvisukta?")
+            raise FileNotFoundError(f"Executable not found at {self.exec_path}.")
 
     def run(self):
         import subprocess
-        print(f"Starting DviSukta Bispectrum engine using {self.exec_path}...")
-        
-        result = subprocess.run(
-            [str(self.exec_path)], 
-            cwd=str(self.base_dir),
-            capture_output=True,
-            text=True
-        )
-        
-        print("\n--- DviSukta Engine Complete! ---")
-        
-        if result.stdout:
-            print("Output:\n", result.stdout)
+        import glob
+        import shutil
+        import os
+        import re
+        from tqdm.auto import tqdm
+
+        # Grab all ReionYuga HI_maps
+        hi_maps = sorted(glob.glob(str(self.base_dir / "ionz_out" / "HI_maprs_*")))
+        if not hi_maps:
+            print("Error: No HI_maprs files found! ReionYuga must run first.")
+            return
             
-        if result.stderr:
-            print("\nError Details (if any):\n", result.stderr)
+        # Create a master directory for all bispectrum outputs
+        bispec_out_dir = self.base_dir / "bispec_out"
+        bispec_out_dir.mkdir(exist_ok=True)
+        
+        ghost_file = self.base_dir / "c_data8.0_100"
+
+        # Loop through every redshift map
+        for target_map in tqdm(hi_maps, desc="Running DviSukta", unit="map"):
+            
+            # 1. Silently trick the C-engine with the Ghost File
+            shutil.copy(target_map, ghost_file)
+
+            # 2. Run the C-engine
+            subprocess.run([str(self.exec_path)], cwd=str(self.base_dir), capture_output=True)
+            
+            # 3. Extract the redshift from the filename
+            match = re.search(r'HI_maprs_(\d+\.?\d*)', os.path.basename(target_map))
+            z_val = match.group(1) if match else "unknown"
+            
+            # 4. Move generated k2byk1 folders into a redshift-specific folder
+            z_dir = bispec_out_dir / f"z_{z_val}"
+            z_dir.mkdir(exist_ok=True)
+            
+            for k_folder in glob.glob(str(self.base_dir / "k2byk1_*")):
+                folder_name = os.path.basename(k_folder)
+                dest = z_dir / folder_name
+                if dest.exists():
+                    shutil.rmtree(dest) # Remove if it already exists from a previous run
+                shutil.move(k_folder, z_dir)
+                
+        # Clean up the ghost file
+        if ghost_file.exists():
+            os.remove(ghost_file)

@@ -1,9 +1,58 @@
-import os
+import numpy as np
 from pathlib import Path
 
 class ConfigManager:
-    def __init__(self, base_dir="."):
+    # 1. Accept BOTH custom_params and base_dir
+    def __init__(self, custom_params=None, base_dir="."):
         self.base_dir = Path(base_dir).resolve()
+        print("Initializing BrahmAstra Configuration...")
+        
+        self.params = {
+            "grid_size": 64,       
+            "box_size": 100.0,     
+            "omega_m": 0.315,      
+            "omega_l": 0.685,
+            "hubble": 0.674,
+            "sigma_8": 0.811,
+            "n_s": 0.965,
+            "z_start": 13.0,       
+            "z_end": 7.0,          
+            "num_redshifts": 4,    
+            "redshifts": None,
+            "n_bins": None      
+        }
+
+        if custom_params:
+            for key, value in custom_params.items():
+                if key in self.params:
+                    self.params[key] = value
+                else:
+                    print(f"Warning: Unrecognized parameter '{key}' ignored.")
+
+        if self.params["redshifts"] is None:
+            self.params["redshifts"] = self.generate_redshifts()
+        else:
+            self.params["redshifts"] = np.array(self.params["redshifts"])
+            
+        print(f"   -> Grid Size: {self.params['grid_size']}^3")
+        print(f"   -> Tracking {len(self.params['redshifts'])} redshifts: {np.round(self.params['redshifts'], 3)}")
+
+    def generate_redshifts(self):
+        z_start = self.params["z_start"]
+        z_end = self.params["z_end"]
+        num_z = self.params["num_redshifts"]
+        scale_start = 1.0 + z_start
+        scale_end = 1.0 + z_end
+        z_array = np.geomspace(scale_start, scale_end, num=num_z) - 1.0
+        return np.sort(z_array)[::-1]
+
+    def get(self, key):
+        return self.params.get(key)
+
+    # ==========================================================
+    # DO NOT DELETE YOUR FILE WRITERS BELOW THIS LINE!
+    # (def write_nbody_config, def write_bispec_config, etc.)
+    # ==========================================================
 
     def write_nbody_config(self, 
                            grid_size=256, 
@@ -46,11 +95,21 @@ List of the redshift values
         
         print(f"[ConfigManager] Successfully wrote N-body parameters for {noutput} redshift(s) to the root directory.")
 
-    def write_bispec_config(self, ll=1.12, nk1bin=10, nnbin=10, ncostbin=10):
-        content = f"{ll}\n{nk1bin}\n{nnbin}\n{ncostbin}\n"
-        target_file = self.base_dir / "input.bispec"
+    def write_bispec_config(self):
+        box_size = self.get("box_size")
+        grid_size = self.get("grid_size")
+        custom_bins = self.get("n_bins")
         
-        with open(target_file, "w") as f:
-            f.write(content)
+        # If the user explicitly provided bin sizes, use them!
+        if custom_bins is not None:
+            safe_bins = int(custom_bins)
+            print(f"[ConfigManager] Using custom DviSukta bins: {safe_bins}")
+        else:
+            # FIREWALL: Dynamic scaling based on Nyquist limit
+            safe_bins = min(10, max(1, (grid_size // 2) - 2))
+            print(f"[ConfigManager] Auto-scaling DviSukta bins to {safe_bins} (Grid={grid_size})")
+            
+        config_content = f"{box_size}\n{safe_bins}\n{safe_bins}\n{safe_bins}\n"
         
-        print("[ConfigManager] Successfully wrote DviSukta bispectrum parameters to the root directory.")
+        with open(self.base_dir / "input.bispec", "w") as f:
+            f.write(config_content)

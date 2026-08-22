@@ -1,8 +1,8 @@
 import subprocess
 from pathlib import Path
 
-# Note: Adjust these imports later if your class names in pipeline.py are different!
-# from .pipeline import Pipeline 
+# Bring your classes to the top level of the package
+from .pipeline import BrahmAstraPipeline
 from .plot import CosmoVis
 
 def build_engines():
@@ -11,6 +11,8 @@ def build_engines():
     Streams the output directly to the Jupyter notebook.
     """
     print("Initializing C-Compiler for BrahmAstra Engines...")
+    
+    # ... (Keep the rest of your build_engines function exactly as it is) ...
     
     # Dynamically find the external directory relative to this file
     base_dir = Path(__file__).resolve().parent.parent / "external"
@@ -22,7 +24,7 @@ def build_engines():
             print(f"Error: Could not find directory {engine_path}")
             continue
             
-        print(f"🛠️  Compiling {engine.upper()}...")
+        print(f"Compiling {engine.upper()}...")
         
         try:
             # 1. Clean previous builds silently
